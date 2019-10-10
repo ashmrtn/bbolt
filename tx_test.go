@@ -8,7 +8,7 @@ import (
 	"os"
 	"testing"
 
-	bolt "go.etcd.io/bbolt"
+	bolt "go.ashmrtn/bbolt"
 )
 
 // TestTx_Check_ReadOnly tests consistency checking on a ReadOnly database.

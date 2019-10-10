@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	bolt "go.etcd.io/bbolt"
+	bolt "go.ashmrtn/bbolt"
 )
 
 func TestSimulate_1op_1p(t *testing.T)     { testSimulate(t, nil, 1, 1, 1) }

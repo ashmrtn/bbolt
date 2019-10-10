@@ -1,3 +1,3 @@
-module go.etcd.io/bbolt
+module go.ashmrtn/bbolt
 
 go 1.12
