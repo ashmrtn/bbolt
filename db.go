@@ -6,6 +6,7 @@ import (
 	"hash/fnv"
 	"log"
 	"os"
+	"reflect"
 	"runtime"
 	"sort"
 	"sync"
@@ -203,8 +204,8 @@ func Open(path string, mode os.FileMode, options *Options) (*DB, error) {
 	db.openFile = options.OpenFile
 	if db.openFile == nil {
 		db.openFile =
-			func(path string, flags int, mode os.FileMode) (File, error) {
-				return os.OpenFile(path, flags, mode)
+			func(p string, f int, m os.FileMode) (File, error) {
+				return os.OpenFile(p, f, m)
 			}
 	}
 
@@ -503,7 +504,7 @@ func (db *DB) close() error {
 	}
 
 	// Close file handles.
-	if db.file != nil {
+	if !reflect.ValueOf(db.file).IsNil() {
 		// No need to unlock read-only file.
 		if !db.readOnly {
 			// Unlock the file.
