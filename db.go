@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 	"unsafe"
+
+	"go.ashmrtn/bbolt/spdk"
 )
 
 // The largest step that can be taken when remapping the mmap.
@@ -201,13 +203,19 @@ func Open(path string, mode os.FileMode, options *Options) (*DB, error) {
 		db.readOnly = true
 	}
 
-	db.openFile = options.OpenFile
-	if db.openFile == nil {
-		db.openFile =
-			func(p string, f int, m os.FileMode) (File, error) {
-				return os.OpenFile(p, f, m)
+	db.openFile =
+		func(p string, f int, m os.FileMode) (File, error) {
+			return spdk.OpenFile(p, f, m)
+		}
+		/*
+			db.openFile = options.OpenFile
+			if db.openFile == nil {
+				db.openFile =
+					func(p string, f int, m os.FileMode) (File, error) {
+						return os.OpenFile(p, f, m)
+					}
 			}
-	}
+		*/
 
 	// Open data file and separate sync handler for metadata writes.
 	var err error
