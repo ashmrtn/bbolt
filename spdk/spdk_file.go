@@ -15,6 +15,9 @@ import (
 type SpdkFile struct {
 	proto   string
 	devAddr string
+	// This should be treated as an opaque field, but is required to live for the
+	// lifetime of the database.
+	ctx C.struct_SpdkCtx
 }
 
 func OpenFile(path string, flags int, mode os.FileMode) (*SpdkFile, error) {
@@ -29,7 +32,7 @@ func OpenFile(path string, flags int, mode os.FileMode) (*SpdkFile, error) {
 	// Some sad calls into C land to initalize spdk.
 	trid := C.CString("trtype=" + f.proto + " traddr=" + f.devAddr)
 	defer C.free(unsafe.Pointer(trid))
-	res := C.SpdkInit(trid)
+	res := C.SpdkInit(trid, &f.ctx)
 	if res != 0 {
 		return nil, errors.New("Unable to initialize spdk")
 	}
@@ -67,7 +70,8 @@ func (f *SpdkFile) ReadAt(b []byte, off int64) (int, error) {
 }
 
 func (f *SpdkFile) Close() error {
-	return errors.New("Not implemented")
+	C.SpdkTeardown(&f.ctx)
+	return nil
 }
 
 func (f *SpdkFile) Read(b []byte) (int, error) {
