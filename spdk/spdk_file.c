@@ -10,7 +10,7 @@ bool probeCb(void *cb_ctx, const struct spdk_nvme_transport_id *trid,
     struct spdk_nvme_ctrlr_opts *opts);
 void attachCb(void *cb_ctx, const struct spdk_nvme_transport_id *trid,
     struct spdk_nvme_ctrlr *ctrlr, const struct spdk_nvme_ctrlr_opts *opts);
-//void opCb(void *cb_ctx, const struct spdk_nvme_cpl *cpl);
+void opCb(void *cb_ctx, const struct spdk_nvme_cpl *cpl);
 
 // Trid should be in the form "trtype=<type> traddr=<addr>"
 int SpdkInit(const char *tridStr, struct SpdkCtx *ctx) {
@@ -130,16 +130,14 @@ int QueueIO(struct SpdkCtx *ctx, struct Iou *iou, char *data) {
   switch (iou->ioType) {
     case SpdkRead:
       rc = spdk_nvme_ns_cmd_read(ctx->ns, ctx->qpair, iou->buf, iou->lba,
-          iou->lbaCount, NULL, iou, 0);
-          //iou->lbaCount, opCb, iou, 0);
+          iou->lbaCount, opCb, iou, 0);
       if (rc != 0) {
         SPDK_ERRLOG("Unable to submit read to queue\n");
       }
       break;
     case SpdkWrite:
       rc = spdk_nvme_ns_cmd_write(ctx->ns, ctx->qpair, iou->buf, iou->lba,
-          iou->lbaCount, NULL, iou, 0);
-          //iou->lbaCount, opCb, iou, 0);
+          iou->lbaCount, opCb, iou, 0);
       if (rc != 0) {
         SPDK_ERRLOG("Unable to submit write to queue\n");
       }
@@ -157,4 +155,11 @@ int QueueIO(struct SpdkCtx *ctx, struct Iou *iou, char *data) {
       rc = -1;
   }
   return rc;
+}
+
+void opCb(void *cb_ctx, const struct spdk_nvme_cpl *cpl) {
+  if (spdk_nvme_cpl_is_error(cpl)) {
+    SPDK_NOTICELOG("write IO completed with error %s\n",
+        spdk_nvme_cpl_get_status_string(&cpl->status));
+  }
 }

@@ -89,7 +89,7 @@ func (f *SpdkFile) WriteAt(b []byte, off int64) (int, error) {
 		return -1, errors.New("Unable to queue IO with spdk")
 	}
 
-	f.queued.PushBack(&iou)
+	f.queued.PushBack(iou)
 
 	return int(iou.bufSize), nil
 }
