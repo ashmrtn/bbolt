@@ -1,6 +1,7 @@
 #include "spdk_file.h"
 
 #include <stdio.h>
+#include <string.h>
 
 #include "spdk/env.h"
 #include "spdk/log.h"
@@ -103,9 +104,57 @@ void attachCb(void *cb_ctx, const struct spdk_nvme_transport_id *trid,
     SPDK_ERRLOG("Unable to allocate nvme qpair\n");
     return;
   }
-  ctx->namespaceSize = spdk_nvme_ns_get_size(ctx->ns);
-  if (ctx->namespaceSize <= 0) {
+  ctx->NamespaceSize = spdk_nvme_ns_get_size(ctx->ns);
+  if (ctx->NamespaceSize <= 0) {
     SPDK_ERRLOG("Unable to get namespace size for namespace %d\n", 1);
     return;
   }
+
+  ctx->SectorSize = spdk_nvme_ns_get_sector_size(ctx->ns);
+}
+
+int QueueIO(struct SpdkCtx *ctx, struct Iou *iou, char *data) {
+  int rc = -1;
+
+  // Buffer allocation here because Go doesn't understand C macros and I don't
+  // want to make a separate call just to allocate a buffer with a wrapper
+  // function.
+  iou->buf = spdk_zmalloc(iou->bufSize, 0x1000, NULL, SPDK_ENV_SOCKET_ID_ANY,
+      SPDK_MALLOC_DMA);
+  if (iou->buf == NULL) {
+    return rc;
+  }
+  memcpy(iou->buf, data, iou->bufSize);
+
+  // Actually queue the IO request.
+  switch (iou->ioType) {
+    case SpdkRead:
+      rc = spdk_nvme_ns_cmd_read(ctx->ns, ctx->qpair, iou->buf, iou->lba,
+          iou->lbaCount, NULL, iou, 0);
+          //iou->lbaCount, opCb, iou, 0);
+      if (rc != 0) {
+        SPDK_ERRLOG("Unable to submit read to queue\n");
+      }
+      break;
+    case SpdkWrite:
+      rc = spdk_nvme_ns_cmd_write(ctx->ns, ctx->qpair, iou->buf, iou->lba,
+          iou->lbaCount, NULL, iou, 0);
+          //iou->lbaCount, opCb, iou, 0);
+      if (rc != 0) {
+        SPDK_ERRLOG("Unable to submit write to queue\n");
+      }
+      break;
+      /*
+    case SpdkSync:
+      rc = spdk_nvme_ns_cmd_flush(ctx->ns, ctx->qpair, opCb, iou);
+      if (rc != 0) {
+        SPDK_ERRLOG("Unable to submit IO to queue\n");
+      }
+      break;
+      */
+    default:
+      SPDK_ERRLOG("Unknown IO type\n");
+      rc = -1;
+  }
+  return rc;
 }

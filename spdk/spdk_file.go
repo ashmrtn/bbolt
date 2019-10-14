@@ -6,6 +6,7 @@ package spdk
 // #include "spdk_file.h"
 import "C"
 import (
+	"container/list"
 	"errors"
 	"os"
 	"strings"
@@ -17,7 +18,8 @@ type SpdkFile struct {
 	devAddr string
 	// This should be treated as an opaque field, but is required to live for the
 	// lifetime of the database.
-	ctx C.struct_SpdkCtx
+	ctx    C.struct_SpdkCtx
+	queued *list.List
 }
 
 func OpenFile(path string, flags int, mode os.FileMode) (*SpdkFile, error) {
@@ -36,6 +38,12 @@ func OpenFile(path string, flags int, mode os.FileMode) (*SpdkFile, error) {
 	if res != 0 {
 		return nil, errors.New("Unable to initialize spdk")
 	}
+	f.queued = list.New()
+
+	// Small amount of sanity testing here for kicks.
+	f.WriteAt([]byte(strings.Repeat("a", 4096)), 0)
+	f.Close()
+
 	// TODO(ashmrtnz): Uncomment when actually working.
 	//return f, nil
 	return nil, errors.New("Not implemented")
@@ -58,7 +66,32 @@ func (f *SpdkFile) Name() string {
 }
 
 func (f *SpdkFile) WriteAt(b []byte, off int64) (int, error) {
-	return -1, errors.New("Not implemented")
+	iou := C.struct_Iou{
+		ioType:   C.SpdkWrite,
+		bufSize:  C.ulong(len(b)),
+		offset:   C.ulonglong(off),
+		lba:      C.ulonglong(off) / C.ulonglong(f.ctx.SectorSize),
+		lbaCount: C.ulong(len(b)) / C.ulong(f.ctx.SectorSize),
+	}
+
+	if int64(iou.lba)*int64(f.ctx.SectorSize) != off {
+		return -1, errors.New("Offset not sector aligned")
+	}
+	if int(iou.lbaCount)*int(f.ctx.SectorSize) != len(b) {
+		return -1, errors.New("Length not a multiple of sector size")
+	}
+
+	// TODO(ashmrtnz): Remove the following call eventually.
+	// Sad call that causes an extra data copy.
+	ptr := C.CBytes(b)
+	defer C.free(ptr)
+	if res := C.QueueIO(&f.ctx, &iou, (*C.char)(ptr)); res != 0 {
+		return -1, errors.New("Unable to queue IO with spdk")
+	}
+
+	f.queued.PushBack(&iou)
+
+	return int(iou.bufSize), nil
 }
 
 func (f *SpdkFile) Stat() (os.FileInfo, error) {
