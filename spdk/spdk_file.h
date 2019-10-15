@@ -32,5 +32,6 @@ struct Iou {
 int SpdkInit(const char *tridStr, struct SpdkCtx *ctx);
 void SpdkTeardown(struct SpdkCtx *ctx);
 int QueueIO(struct SpdkCtx *ctx, struct Iou *iou, char *data);
+int ProcessCompletions(struct SpdkCtx *ctx, unsigned int max);
 
 #endif  // BBOLT_SPDK_SPDK_FILE_H_

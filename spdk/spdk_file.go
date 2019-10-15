@@ -49,8 +49,21 @@ func OpenFile(path string, flags int, mode os.FileMode) (*SpdkFile, error) {
 	return nil, errors.New("Not implemented")
 }
 
+// TODO(ashmrtnz): Make thread safe.
+// Assumes that backing device has PLP and therefore does not require a flush
+// operation.
 func (f *SpdkFile) Sync() error {
-	return errors.New("Not implemented")
+	for pending := f.queued.Len(); pending > 0; pending = f.queued.Len() {
+		done := int(C.ProcessCompletions(&f.ctx, C.uint(pending)))
+		// Remove requests that were completed and update the file size if needed.
+		for i := 0; i < done; i++ {
+			first := f.queued.Front()
+			iou := first.Value.(*C.struct_Iou)
+			C.spdk_free(unsafe.Pointer(iou.buf))
+			f.queued.Remove(first)
+		}
+	}
+	return nil
 }
 
 func (f *SpdkFile) Fd() uintptr {

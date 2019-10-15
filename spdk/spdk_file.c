@@ -163,3 +163,7 @@ void opCb(void *cb_ctx, const struct spdk_nvme_cpl *cpl) {
         spdk_nvme_cpl_get_status_string(&cpl->status));
   }
 }
+
+int ProcessCompletions(struct SpdkCtx *ctx, unsigned int max) {
+  return spdk_nvme_qpair_process_completions(ctx->qpair, max);
+}
