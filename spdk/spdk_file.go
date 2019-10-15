@@ -21,6 +21,9 @@ type SpdkFile struct {
 	// lifetime of the database.
 	ctx    C.struct_SpdkCtx
 	queued *list.List
+
+	// Go only information.
+	offset int64
 }
 
 func OpenFile(path string, flags int, mode os.FileMode) (*SpdkFile, error) {
@@ -140,15 +143,28 @@ func (f *SpdkFile) Close() error {
 }
 
 func (f *SpdkFile) Read(b []byte) (int, error) {
-	return -1, errors.New("Not implemented")
+	return f.ReadAt(b, f.offset)
 }
 
 func (f *SpdkFile) Write(b []byte) (int, error) {
-	return -1, errors.New("Not implemented")
+	return f.WriteAt(b, f.offset)
 }
 
 func (f *SpdkFile) Seek(offset int64, whence int) (int64, error) {
-	return -1, errors.New("Not implemented")
+	newOff := int64(0)
+	switch whence {
+	case 0:
+		newOff = offset
+	case 1:
+		newOff = f.offset + offset
+	case 2:
+		return -1, errors.New("Not implemented")
+	}
+	if newOff < 0 {
+		return f.offset, os.ErrInvalid
+	}
+	f.offset = newOff
+	return f.offset, nil
 }
 
 func (f *SpdkFile) initIou(opType C.enum_IoType, off int64,
