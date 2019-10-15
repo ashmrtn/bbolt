@@ -84,30 +84,20 @@ func (f *SpdkFile) Name() string {
 }
 
 func (f *SpdkFile) WriteAt(b []byte, off int64) (int, error) {
-	iou := C.struct_Iou{
-		ioType:   C.SpdkWrite,
-		bufSize:  C.ulong(len(b)),
-		offset:   C.ulonglong(off),
-		lba:      C.ulonglong(off) / C.ulonglong(f.ctx.SectorSize),
-		lbaCount: C.ulong(len(b)) / C.ulong(f.ctx.SectorSize),
-	}
-
-	if int64(iou.lba)*int64(f.ctx.SectorSize) != off {
-		return -1, errors.New("Offset not sector aligned")
-	}
-	if int(iou.lbaCount)*int(f.ctx.SectorSize) != len(b) {
-		return -1, errors.New("Length not a multiple of sector size")
+	iou, err := f.initIou(C.SpdkWrite, off, len(b))
+	if err != nil {
+		return -1, err
 	}
 
 	// TODO(ashmrtnz): Remove the following call eventually.
 	// Sad call that causes an extra data copy.
 	ptr := C.CBytes(b)
 	defer C.free(ptr)
-	if res := C.QueueIO(&f.ctx, &iou, (*C.char)(ptr)); res != 0 {
+	if res := C.QueueIO(&f.ctx, iou, (*C.char)(ptr)); res != 0 {
 		return -1, errors.New("Unable to queue IO with spdk")
 	}
 
-	f.queued.PushBack(&iou)
+	f.queued.PushBack(iou)
 
 	return int(iou.bufSize), nil
 }
