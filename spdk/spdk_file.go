@@ -62,7 +62,7 @@ func (f *SpdkFile) Truncate(size int64) error {
 }
 
 func (f *SpdkFile) Name() string {
-	return ""
+	return "spdk-file"
 }
 
 func (f *SpdkFile) WriteAt(b []byte, off int64) (int, error) {
