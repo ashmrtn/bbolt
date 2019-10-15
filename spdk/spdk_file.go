@@ -8,6 +8,7 @@ import "C"
 import (
 	"container/list"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"unsafe"
@@ -42,6 +43,10 @@ func OpenFile(path string, flags int, mode os.FileMode) (*SpdkFile, error) {
 
 	// Small amount of sanity testing here for kicks.
 	f.WriteAt([]byte(strings.Repeat("a", 4096)), 0)
+	f.Sync()
+	d := make([]byte, 4096)
+	f.ReadAt(d, 0)
+	fmt.Printf("%s\n\n", string(d))
 	f.Close()
 
 	// TODO(ashmrtnz): Uncomment when actually working.
@@ -102,7 +107,7 @@ func (f *SpdkFile) WriteAt(b []byte, off int64) (int, error) {
 		return -1, errors.New("Unable to queue IO with spdk")
 	}
 
-	f.queued.PushBack(iou)
+	f.queued.PushBack(&iou)
 
 	return int(iou.bufSize), nil
 }
@@ -112,7 +117,31 @@ func (f *SpdkFile) Stat() (os.FileInfo, error) {
 }
 
 func (f *SpdkFile) ReadAt(b []byte, off int64) (int, error) {
-	return -1, errors.New("Not implemented")
+	size := len(b)
+	var err error
+
+	iou, err2 := f.initIou(C.SpdkRead, off, size)
+	if err2 != nil {
+		return -1, err2
+	}
+
+	// TODO(ashmrtnz): Remove the following call eventually.
+	// Sad call that causes an extra data copy.
+	ptr := C.CBytes(b)
+	defer C.free(ptr)
+	if res := C.QueueIO(&f.ctx, iou, (*C.char)(ptr)); res != 0 {
+		return -1, errors.New("Unable to queue IO with spdk")
+	}
+	f.queued.PushBack(iou)
+
+	// Assume that only a single read request is outstanding at a time, otherwise
+	// data will be lost because buffers won't be retrieved properly.
+	err = f.waitForRead(iou, b)
+	if err != nil {
+		return -1, err
+	}
+
+	return size, err
 }
 
 func (f *SpdkFile) Close() error {
@@ -130,4 +159,66 @@ func (f *SpdkFile) Write(b []byte) (int, error) {
 
 func (f *SpdkFile) Seek(offset int64, whence int) (int64, error) {
 	return -1, errors.New("Not implemented")
+}
+
+func (f *SpdkFile) initIou(opType C.enum_IoType, off int64,
+	size int) (*C.struct_Iou, error) {
+	iou := C.struct_Iou{
+		ioType:   opType,
+		bufSize:  C.ulong(size),
+		offset:   C.ulonglong(off),
+		lba:      C.ulonglong(off) / C.ulonglong(f.ctx.SectorSize),
+		lbaCount: C.ulong(size) / C.ulong(f.ctx.SectorSize),
+	}
+
+	if int64(iou.lba)*int64(f.ctx.SectorSize) != off {
+		return nil, errors.New("Offset not sector aligned")
+	}
+	if int(iou.lbaCount)*int(f.ctx.SectorSize) != size {
+		return nil, errors.New("Length not a multiple of sector size")
+	}
+	return &iou, nil
+}
+
+func (f *SpdkFile) waitForRead(iou *C.struct_Iou, out []byte) error {
+	idx := 0
+	for a := f.queued.Front(); a != nil; a = a.Next() {
+		if a.Value == iou {
+			break
+		}
+		idx++
+	}
+	if idx == f.queued.Len() {
+		return errors.New("Iou not queued")
+	}
+
+	// Complete all but our read.
+	for completed := 0; completed < idx; {
+		done := int(C.ProcessCompletions(&f.ctx, C.uint((idx+1)-completed)))
+		for i := 0; i < done; i++ {
+			first := f.queued.Front()
+			iou := first.Value.(*C.struct_Iou)
+			C.spdk_free(unsafe.Pointer(iou.buf))
+			f.queued.Remove(first)
+		}
+		completed += done
+	}
+
+	// Wait for our read to complete.
+	for {
+		ioDone := C.ProcessCompletions(&f.ctx, 1)
+		if ioDone != 0 {
+			break
+		}
+	}
+
+	// Copy our data out of the buffer.
+	first := f.queued.Front()
+	finalIou := first.Value.(*C.struct_Iou)
+	copy(out, C.GoBytes(unsafe.Pointer(finalIou.buf), C.int(finalIou.bufSize)))
+
+	C.spdk_free(unsafe.Pointer(finalIou.buf))
+	f.queued.Remove(first)
+
+	return nil
 }

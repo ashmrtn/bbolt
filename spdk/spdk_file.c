@@ -124,7 +124,6 @@ int QueueIO(struct SpdkCtx *ctx, struct Iou *iou, char *data) {
   if (iou->buf == NULL) {
     return rc;
   }
-  memcpy(iou->buf, data, iou->bufSize);
 
   // Actually queue the IO request.
   switch (iou->ioType) {
@@ -136,6 +135,7 @@ int QueueIO(struct SpdkCtx *ctx, struct Iou *iou, char *data) {
       }
       break;
     case SpdkWrite:
+      memcpy(iou->buf, data, iou->bufSize);
       rc = spdk_nvme_ns_cmd_write(ctx->ns, ctx->qpair, iou->buf, iou->lba,
           iou->lbaCount, opCb, iou, 0);
       if (rc != 0) {
