@@ -7,12 +7,17 @@ package spdk
 import "C"
 import (
 	"container/list"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"unsafe"
 )
+
+// Use a 4k block because Optane has better parallelism with that size.
+const metaSize = 4096
 
 type SpdkFile struct {
 	proto   string
@@ -24,6 +29,7 @@ type SpdkFile struct {
 
 	// Go only information.
 	offset int64
+	size   int64
 }
 
 func OpenFile(path string, flags int, mode os.FileMode) (*SpdkFile, error) {
@@ -61,17 +67,28 @@ func OpenFile(path string, flags int, mode os.FileMode) (*SpdkFile, error) {
 // Assumes that backing device has PLP and therefore does not require a flush
 // operation.
 func (f *SpdkFile) Sync() error {
+	newSize := f.size
 	for pending := f.queued.Len(); pending > 0; pending = f.queued.Len() {
 		done := int(C.ProcessCompletions(&f.ctx, C.uint(pending)))
 		// Remove requests that were completed and update the file size if needed.
 		for i := 0; i < done; i++ {
 			first := f.queued.Front()
 			iou := first.Value.(*C.struct_Iou)
+			tmp := int64(iou.offset+C.ulonglong(iou.bufSize)) - metaSize
+			if iou.ioType == C.SpdkWrite && tmp > newSize {
+				newSize = tmp
+			}
 			C.spdk_free(unsafe.Pointer(iou.buf))
 			f.queued.Remove(first)
 		}
 	}
-	return nil
+	// Queue a write with the updated file size and wait for it to complete.
+	var err error
+	if newSize > f.size {
+		err = f.updateFileSize(newSize)
+	}
+
+	return err
 }
 
 func (f *SpdkFile) Fd() uintptr {
@@ -86,7 +103,11 @@ func (f *SpdkFile) Name() string {
 	return "spdk-file"
 }
 
-func (f *SpdkFile) WriteAt(b []byte, off int64) (int, error) {
+func (f *SpdkFile) Stat() (os.FileInfo, error) {
+	return nil, errors.New("Not implemented")
+}
+
+func (f *SpdkFile) writeAt(b []byte, off int64) (int, error) {
 	iou, err := f.initIou(C.SpdkWrite, off, len(b))
 	if err != nil {
 		return -1, err
@@ -105,15 +126,12 @@ func (f *SpdkFile) WriteAt(b []byte, off int64) (int, error) {
 	return int(iou.bufSize), nil
 }
 
-func (f *SpdkFile) Stat() (os.FileInfo, error) {
-	return nil, errors.New("Not implemented")
+func (f *SpdkFile) WriteAt(b []byte, off int64) (int, error) {
+	return f.writeAt(b, off+metaSize)
 }
 
-func (f *SpdkFile) ReadAt(b []byte, off int64) (int, error) {
-	size := len(b)
-	var err error
-
-	iou, err2 := f.initIou(C.SpdkRead, off, size)
+func (f *SpdkFile) readAt(b []byte, off int64) (int, error) {
+	iou, err2 := f.initIou(C.SpdkRead, off, len(b))
 	if err2 != nil {
 		return -1, err2
 	}
@@ -129,12 +147,35 @@ func (f *SpdkFile) ReadAt(b []byte, off int64) (int, error) {
 
 	// Assume that only a single read request is outstanding at a time, otherwise
 	// data will be lost because buffers won't be retrieved properly.
-	err = f.waitForRead(iou, b)
+	err := f.waitForRead(iou, b)
 	if err != nil {
 		return -1, err
 	}
 
-	return size, err
+	return len(b), err
+}
+
+func (f *SpdkFile) ReadAt(b []byte, off int64) (int, error) {
+	// This is kind of a cop out to get the file size updated before we queue the
+	// request.
+	f.Sync()
+
+	size := len(b)
+	var err error
+
+	if off >= f.size {
+		return 0, io.EOF
+	} else if off+int64(len(b)) > f.size {
+		size = int(f.size - off)
+		err = io.EOF
+	}
+
+	// Add metaSize here to skip over our "file metadata".
+	read, err2 := f.readAt(b[:size], off+metaSize)
+	if err2 != nil {
+		err = err2
+	}
+	return read, err
 }
 
 func (f *SpdkFile) Close() error {
@@ -226,5 +267,31 @@ func (f *SpdkFile) waitForRead(iou *C.struct_Iou, out []byte) error {
 	C.spdk_free(unsafe.Pointer(finalIou.buf))
 	f.queued.Remove(first)
 
+	return nil
+}
+
+func makeBlock(data int64, blk []byte) {
+	headerSize := 8
+	binary.BigEndian.PutUint64(blk[0:], uint64(data))
+
+	// Fill the rest of the block with zeros.
+	blk[headerSize] = 0
+	for i := headerSize + 1; i < len(blk); i *= 2 {
+		copy(blk[i:], blk[headerSize:i])
+	}
+}
+
+func (f *SpdkFile) updateFileSize(newSize int64) error {
+	blk := make([]byte, metaSize)
+	makeBlock(newSize, blk)
+	_, err := f.writeAt(blk, 0)
+	if err != nil {
+		return err
+	}
+	err = f.Sync()
+	if err != nil {
+		return err
+	}
+	f.size = newSize
 	return nil
 }
