@@ -199,7 +199,7 @@ func (f *SpdkFile) Seek(offset int64, whence int) (int64, error) {
 	case 1:
 		newOff = f.offset + offset
 	case 2:
-		return -1, errors.New("Not implemented")
+		newOff = f.size + offset
 	}
 	if newOff < 0 {
 		return f.offset, os.ErrInvalid
