@@ -101,7 +101,14 @@ func (f *SpdkFile) Fd() uintptr {
 }
 
 func (f *SpdkFile) Truncate(size int64) error {
-	return errors.New("Not implemented")
+	if size < 0 {
+		return &os.PathError{
+			Op:   "truncate",
+			Path: f.Name(),
+			Err:  os.ErrInvalid,
+		}
+	}
+	return f.updateFileSize(size)
 }
 
 func (f *SpdkFile) Name() string {
