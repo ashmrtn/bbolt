@@ -50,6 +50,11 @@ func OpenFile(path string, flags int, mode os.FileMode) (*SpdkFile, error) {
 	}
 	f.queued = list.New()
 
+	// Try to read file size from device.
+	blk := make([]byte, metaSize)
+	f.readAt(blk, 0)
+	f.size = int64(binary.BigEndian.Uint64(blk[0:]))
+
 	// Small amount of sanity testing here for kicks.
 	f.WriteAt([]byte(strings.Repeat("a", 4096)), 0)
 	f.Sync()
