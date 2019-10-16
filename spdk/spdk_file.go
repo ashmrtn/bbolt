@@ -56,10 +56,18 @@ func OpenFile(path string, flags int, mode os.FileMode) (*SpdkFile, error) {
 	f.size = int64(binary.BigEndian.Uint64(blk[0:]))
 
 	// Small amount of sanity testing here for kicks.
-	f.WriteAt([]byte(strings.Repeat("a", 4096)), 0)
-	f.Sync()
-	d := make([]byte, 4096)
-	f.ReadAt(d, 0)
+	oldSize := f.size
+	f.WriteAt([]byte(strings.Repeat("o", 4096)), oldSize)
+	//f.Sync()
+	d := make([]byte, 8192)
+	_, err := f.ReadAt(d, oldSize)
+	if err != nil {
+		if err == io.EOF {
+			fmt.Printf("%s\n", err.Error())
+		} else {
+			return nil, err
+		}
+	}
 	fmt.Printf("%s\n\n", string(d))
 	f.Close()
 
@@ -190,6 +198,9 @@ func (f *SpdkFile) ReadAt(b []byte, off int64) (int, error) {
 	return read, err
 }
 
+// TODO(ashmrtnz): Should probably move spdk teardown to a specific function
+// because a file may be closed without exiting the application. Similarly for
+// registering spdk stuff at file open.
 func (f *SpdkFile) Close() error {
 	C.SpdkTeardown(&f.ctx)
 	return nil
