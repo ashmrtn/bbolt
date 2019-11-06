@@ -142,6 +142,33 @@ func (f *SpdkFile) Truncate(size int64) error {
 			Err:  os.ErrInvalid,
 		}
 	}
+
+	// Queue a write zero request, this will be sync-ed to disk in
+	// updateFileSize().
+	if size > f.size {
+		iou, err := f.initIou(C.SpdkWriteZeroes, f.size, int(size-f.size))
+		if err != nil {
+			return &os.PathError{
+				Op:   "truncate",
+				Path: f.Name(),
+				Err:  err,
+			}
+		}
+
+		if res := C.QueueIO(&f.ctx, iou, (*C.char)(nil)); res != 0 {
+			return &os.PathError{
+				Op:   "truncate",
+				Path: f.Name(),
+				Err:  errors.New("Unable to queue IO with spdk"),
+			}
+		}
+		f.queued.PushBack(iou)
+
+		// Update the "mmap" file.
+		if f.mmapBuf != nil {
+			fillBuf(0, f.mmapBuf[f.size:])
+		}
+	}
 	return f.updateFileSize(size)
 }
 
@@ -343,4 +370,11 @@ func (f *SpdkFile) updateFileSize(newSize int64) error {
 	}
 	f.size = newSize
 	return nil
+}
+
+func fillBuf(c byte, blk []byte) {
+	blk[0] = c
+	for i := 1; i < len(blk); i *= 2 {
+		copy(blk[i:], blk[:i])
+	}
 }
