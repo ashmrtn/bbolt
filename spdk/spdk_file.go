@@ -13,6 +13,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 	"unsafe"
 )
 
@@ -30,6 +31,31 @@ type SpdkFile struct {
 	// Go only information.
 	offset int64
 	size   int64
+
+	mmapBuf []byte
+}
+
+func (f *SpdkFile) Mmap(sz int) ([]byte, error) {
+	b := make([]byte, sz)
+	// Just read everything in from spdk. This is the equivalent to telling the
+	// kernel to pre-fault the entire mmap range.
+	read, err := f.ReadAt(b, 0)
+	if err != nil && err != io.EOF {
+		return nil, err
+	}
+	// We reached the end of the file, but still want our mmap to be large
+	// enough. Just zero fill the rest of the buffer in this case.
+	if read != sz {
+		fillBuf(0, b[read:])
+	}
+
+	f.mmapBuf = b
+	return f.mmapBuf, nil
+}
+
+func (f *SpdkFile) Munmap() {
+	// Free reference for GC later.
+	f.mmapBuf = nil
 }
 
 func OpenFile(path string, flags int, mode os.FileMode) (*SpdkFile, error) {
