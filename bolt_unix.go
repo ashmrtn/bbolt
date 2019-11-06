@@ -9,8 +9,12 @@ import (
 	"unsafe"
 )
 
+type unix struct{}
+
+var Unix unix
+
 // flock acquires an advisory lock on a file descriptor.
-func flock(db *DB, exclusive bool, timeout time.Duration) error {
+func (u *unix) flock(db *DB, exclusive bool, timeout time.Duration) error {
 	var t time.Time
 	if timeout != 0 {
 		t = time.Now()
@@ -42,12 +46,12 @@ func flock(db *DB, exclusive bool, timeout time.Duration) error {
 }
 
 // funlock releases an advisory lock on a file descriptor.
-func funlock(db *DB) error {
+func (u *unix) funlock(db *DB) error {
 	return syscall.Flock(int(db.file.Fd()), syscall.LOCK_UN)
 }
 
 // mmap memory maps a DB's data file.
-func mmap(db *DB, sz int) error {
+func (u *unix) mmap(db *DB, sz int) error {
 	// Map the data file to memory.
 	b, err := syscall.Mmap(int(db.file.Fd()), 0, sz, syscall.PROT_READ, syscall.MAP_SHARED|db.MmapFlags)
 	if err != nil {
@@ -55,7 +59,7 @@ func mmap(db *DB, sz int) error {
 	}
 
 	// Advise the kernel that the mmap is accessed randomly.
-	err = madvise(b, syscall.MADV_RANDOM)
+	err = u.madvise(b, syscall.MADV_RANDOM)
 	if err != nil && err != syscall.ENOSYS {
 		// Ignore not implemented error in kernel because it still works.
 		return fmt.Errorf("madvise: %s", err)
@@ -69,7 +73,7 @@ func mmap(db *DB, sz int) error {
 }
 
 // munmap unmaps a DB's data file from memory.
-func munmap(db *DB) error {
+func (u *unix) munmap(db *DB) error {
 	// Ignore the unmap if we have no mapped data.
 	if db.dataref == nil {
 		return nil
@@ -84,7 +88,7 @@ func munmap(db *DB) error {
 }
 
 // NOTE: This function is copied from stdlib because it is not available on darwin.
-func madvise(b []byte, advice int) (err error) {
+func (u *unix) madvise(b []byte, advice int) (err error) {
 	_, _, e1 := syscall.Syscall(syscall.SYS_MADVISE, uintptr(unsafe.Pointer(&b[0])), uintptr(len(b)), uintptr(advice))
 	if e1 != 0 {
 		err = e1

@@ -158,6 +158,9 @@ type DB struct {
 	// Read only mode.
 	// When true, Update() and Begin(true) return ErrDatabaseReadOnly immediately.
 	readOnly bool
+
+	// Contains function pointers to stuff like mmap, flock, etc.
+	sysFuncPtrs SysFuncs
 }
 
 // Path returns the path to currently open database file.
@@ -207,15 +210,16 @@ func Open(path string, mode os.FileMode, options *Options) (*DB, error) {
 		func(p string, f int, m os.FileMode) (File, error) {
 			return spdk.OpenFile(p, f, m)
 		}
-		/*
-			db.openFile = options.OpenFile
-			if db.openFile == nil {
-				db.openFile =
-					func(p string, f int, m os.FileMode) (File, error) {
-						return os.OpenFile(p, f, m)
-					}
-			}
-		*/
+	db.sysFuncPtrs = &NoMap
+	/*
+		db.openFile = options.OpenFile
+		if db.openFile == nil {
+			db.openFile =
+				func(p string, f int, m os.FileMode) (File, error) {
+					return os.OpenFile(p, f, m)
+				}
+		}
+	*/
 
 	// Open data file and separate sync handler for metadata writes.
 	var err error
@@ -232,7 +236,7 @@ func Open(path string, mode os.FileMode, options *Options) (*DB, error) {
 	// if !options.ReadOnly.
 	// The database file is locked using the shared lock (more than one process may
 	// hold a lock at the same time) otherwise (options.ReadOnly is set).
-	if err := flock(db, !db.readOnly, options.Timeout); err != nil {
+	if err := db.sysFuncPtrs.flock(db, !db.readOnly, options.Timeout); err != nil {
 		_ = db.close()
 		return nil, err
 	}
@@ -369,7 +373,7 @@ func (db *DB) mmap(minsz int) error {
 	}
 
 	// Memory-map the data file as a byte slice.
-	if err := mmap(db, size); err != nil {
+	if err := db.sysFuncPtrs.mmap(db, size); err != nil {
 		return err
 	}
 
@@ -391,7 +395,7 @@ func (db *DB) mmap(minsz int) error {
 
 // munmap unmaps the data file from memory.
 func (db *DB) munmap() error {
-	if err := munmap(db); err != nil {
+	if err := db.sysFuncPtrs.munmap(db); err != nil {
 		return fmt.Errorf("unmap error: " + err.Error())
 	}
 	return nil
@@ -471,7 +475,7 @@ func (db *DB) init() error {
 	if _, err := db.ops.writeAt(buf, 0); err != nil {
 		return err
 	}
-	if err := fdatasync(db); err != nil {
+	if err := db.sysFuncPtrs.fdatasync(db); err != nil {
 		return err
 	}
 
@@ -516,7 +520,7 @@ func (db *DB) close() error {
 		// No need to unlock read-only file.
 		if !db.readOnly {
 			// Unlock the file.
-			if err := funlock(db); err != nil {
+			if err := db.sysFuncPtrs.funlock(db); err != nil {
 				log.Printf("bolt.Close(): funlock error: %s", err)
 			}
 		}
@@ -876,7 +880,7 @@ func safelyCall(fn func(*Tx) error, tx *Tx) (err error) {
 //
 // This is not necessary under normal operation, however, if you use NoSync
 // then it allows you to force the database file to sync against the disk.
-func (db *DB) Sync() error { return fdatasync(db) }
+func (db *DB) Sync() error { return db.sysFuncPtrs.fdatasync(db) }
 
 // Stats retrieves ongoing performance stats for the database.
 // This is only updated when a transaction closes.
