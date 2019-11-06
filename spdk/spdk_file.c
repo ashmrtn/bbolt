@@ -142,6 +142,23 @@ int QueueIO(struct SpdkCtx *ctx, struct Iou *iou, char *data) {
         SPDK_ERRLOG("Unable to submit write to queue\n");
       }
       break;
+    case SpdkWriteZeroes:
+      // Optane drive doesn't support write_zeros command, so just write out the
+      // zero filled buffer from above.
+      rc = spdk_nvme_ns_cmd_write(ctx->ns, ctx->qpair, iou->buf, iou->lba,
+          iou->lbaCount, opCb, iou, 0);
+      if (rc != 0) {
+        SPDK_ERRLOG("Unable to submit write to queue\n");
+      }
+
+      /*
+      rc = spdk_nvme_ns_cmd_write_zeroes(ctx->ns, ctx->qpair, iou->lba,
+          iou->lbaCount, opCb, iou, 0);
+      if (rc != 0) {
+        SPDK_ERRLOG("Unable to submit write zeros to queue\n");
+      }
+      */
+      break;
       /*
     case SpdkSync:
       rc = spdk_nvme_ns_cmd_flush(ctx->ns, ctx->qpair, opCb, iou);

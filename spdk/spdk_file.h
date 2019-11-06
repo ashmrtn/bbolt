@@ -16,7 +16,8 @@ struct SpdkCtx {
 
 enum IoType {
   SpdkWrite,
-  SpdkRead
+  SpdkRead,
+  SpdkWriteZeroes,
 };
 
 struct Iou {
