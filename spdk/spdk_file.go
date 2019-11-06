@@ -200,7 +200,18 @@ func (f *SpdkFile) writeAt(b []byte, off int64) (int, error) {
 }
 
 func (f *SpdkFile) WriteAt(b []byte, off int64) (int, error) {
-	return f.writeAt(b, off+metaSize)
+	res, err := f.writeAt(b, off+metaSize)
+	if err != nil {
+		return 0, err
+	}
+
+	// Copy data to our mmap so that subsequent reads can see it. Mmap is
+	// always from the start of the file, so we can just use the same
+	// offset.
+	if f.mmapBuf != nil {
+		copy(f.mmapBuf[off:], b)
+	}
+	return res, err
 }
 
 func (f *SpdkFile) readAt(b []byte, off int64) (int, error) {
