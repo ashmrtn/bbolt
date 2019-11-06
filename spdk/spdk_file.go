@@ -122,7 +122,7 @@ func (f *SpdkFile) Sync() error {
 		}
 	}
 	// Queue a write with the updated file size and wait for it to complete.
-	var err error
+	var err error = nil
 	if newSize > f.size {
 		err = f.updateFileSize(newSize)
 	}
