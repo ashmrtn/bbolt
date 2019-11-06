@@ -9,7 +9,6 @@ import (
 	"container/list"
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -81,25 +80,26 @@ func OpenFile(path string, flags int, mode os.FileMode) (*SpdkFile, error) {
 	f.readAt(blk, 0)
 	f.size = int64(binary.BigEndian.Uint64(blk[0:]))
 
-	// Small amount of sanity testing here for kicks.
-	oldSize := f.size
-	f.WriteAt([]byte(strings.Repeat("o", 4096)), oldSize)
-	//f.Sync()
-	d := make([]byte, 8192)
-	_, err := f.ReadAt(d, oldSize)
-	if err != nil {
-		if err == io.EOF {
-			fmt.Printf("%s\n", err.Error())
-		} else {
-			return nil, err
+	/*
+		// Small amount of sanity testing here for kicks.
+		oldSize := f.size
+		f.WriteAt([]byte(strings.Repeat("o", 4096)), oldSize)
+		//f.Sync()
+		d := make([]byte, 8192)
+		_, err := f.ReadAt(d, oldSize)
+		if err != nil {
+			if err == io.EOF {
+				fmt.Printf("%s\n", err.Error())
+			} else {
+				return nil, err
+			}
 		}
-	}
-	fmt.Printf("%s\n\n", string(d))
-	f.Close()
+		fmt.Printf("%s\n\n", string(d))
+		f.Close()
+		return nil, errors.New("Not implemented")
+	*/
 
-	// TODO(ashmrtnz): Uncomment when actually working.
-	//return f, nil
-	return nil, errors.New("Not implemented")
+	return f, nil
 }
 
 // TODO(ashmrtnz): Make thread safe.
