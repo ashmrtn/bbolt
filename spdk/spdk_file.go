@@ -351,10 +351,7 @@ func makeBlock(data int64, blk []byte) {
 	binary.BigEndian.PutUint64(blk[0:], uint64(data))
 
 	// Fill the rest of the block with zeros.
-	blk[headerSize] = 0
-	for i := headerSize + 1; i < len(blk); i *= 2 {
-		copy(blk[i:], blk[headerSize:i])
-	}
+	fillBuf(0, blk[headerSize:])
 }
 
 func (f *SpdkFile) updateFileSize(newSize int64) error {
