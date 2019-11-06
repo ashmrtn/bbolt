@@ -177,7 +177,27 @@ func (f *SpdkFile) Name() string {
 }
 
 func (f *SpdkFile) Stat() (os.FileInfo, error) {
-	return nil, errors.New("Not implemented")
+	return os.FileInfo(f), nil
+}
+
+func (f *SpdkFile) Size() int64 {
+	return f.size
+}
+
+func (f *SpdkFile) Mode() os.FileMode {
+	return os.ModePerm
+}
+
+func (f *SpdkFile) ModTime() time.Time {
+	return time.Now()
+}
+
+func (f *SpdkFile) IsDir() bool {
+	return false
+}
+
+func (f *SpdkFile) Sys() interface{} {
+	return nil
 }
 
 func (f *SpdkFile) writeAt(b []byte, off int64) (int, error) {
